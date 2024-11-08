@@ -7,7 +7,9 @@ import pyautogui
 import cv2
 import mediapipe as mp
 import numpy as np
-import pickle
+import win32gui
+import win32con
+import win32api
 
 
 class GaussianFilter:
@@ -99,7 +101,20 @@ def count_cameras():
             break
     return n
 
+def set_window_to_foreground(window_name):
+    hwnd = win32gui.FindWindow(None, window_name)
+    if hwnd:
+        win32gui.SetWindowPos(hwnd, win32con.HWND_TOPMOST, 0, 0, 0, 0, win32con.SWP_NOMOVE | win32con.SWP_NOSIZE)
 
+def set_window_transparency(window_name, alpha):
+    hwnd = win32gui.FindWindow(None, window_name)
+    if hwnd:
+        # ウィンドウのスタイルを取得
+        style = win32gui.GetWindowLong(hwnd, win32con.GWL_EXSTYLE)
+        # ウィンドウのスタイルにWS_EX_LAYEREDを追加
+        win32gui.SetWindowLong(hwnd, win32con.GWL_EXSTYLE, style | win32con.WS_EX_LAYERED)
+        # ウィンドウの透明度を設定
+        win32gui.SetLayeredWindowAttributes(hwnd, win32api.RGB(0, 0, 0), alpha, win32con.LWA_ALPHA)
 
 
 def mouse_callback(event, x, y, flags, param):
@@ -123,6 +138,7 @@ def frame_loop(tracking, target):
         
         print('tracking start')
         while tracking.value:
+            start_time = time.time()
         # for _ in range(5):
             # print(f'tracking {tracking.value} {target}')
             filterd = filter.filter(np.array([target[0], target[1]]))
@@ -131,8 +147,9 @@ def frame_loop(tracking, target):
 
             pyautogui.moveTo(x_pos, y_pos)
 
-            # 60fpsで待機
-            time.sleep(1 / fps)
+            # 指定fpsで待機
+            process_time = time.time() - start_time
+            time.sleep(max(0, 1 / fps - process_time))
         print('tracking end')
 
     except Exception as e:
@@ -141,12 +158,14 @@ def frame_loop(tracking, target):
 
 
 if __name__ == "__main__":
+    window_name = 'MediaPipe FaqceTracker'
+
     mp_face_mesh = mp.solutions.face_mesh
     face_mesh = mp_face_mesh.FaceMesh()
     camera_index = 0
     camera_count = count_cameras()
-    cv2.namedWindow('MediaPipe FaceMesh')
-    cv2.setMouseCallback('MediaPipe FaceMesh', mouse_callback)
+    cv2.namedWindow(window_name)
+    cv2.setMouseCallback(window_name, mouse_callback)
     cap = cv2.VideoCapture(camera_index)
     mouth_open = False
 
@@ -233,9 +252,17 @@ if __name__ == "__main__":
                     cv2.putText(frame, f'{face_center}', (50, 70), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1, cv2.LINE_AA)
                     cv2.putText(frame, f'{face_front_normarized}', (50, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1, cv2.LINE_AA)
                     cv2.putText(frame, f'{x_pos} {y_pos}', (50, 110), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1, cv2.LINE_AA)
-                    cv2.putText(frame, f'{detected_fps:05.2f}fps {delta_time:05.2f}sec', (50, 130), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1, cv2.LINE_AA)
-                # 画面表示
-                cv2.imshow('MediaPipe FaceMesh', frame)
+                cv2.putText(frame, f'{detected_fps:05.2f}fps {delta_time:05.2f}sec', (50, 130), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1, cv2.LINE_AA)
+                # 画面下部に操作法を表示
+                cv2.putText(frame, 'Q:Quit C:ChangeCamera Space:StartTracking', (50, frame.shape[0] - 50), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1, cv2.LINE_AA)
+                cv2.putText(frame, 'MouseOpen:MiddleMouseButton', (50, frame.shape[0] - 30), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1, cv2.LINE_AA)
+                # frameを半分サイズに縮小
+                frame = cv2.resize(frame, (int(frame.shape[1] * 2 / 3), int(frame.shape[0] * 2 / 3)))
+                # ウィンドウに表示
+                if cap.isOpened():
+                    cv2.imshow(window_name, frame)
+                    set_window_to_foreground(window_name)
+                    set_window_transparency(window_name, 180)
                 
             # キー入力
             key = cv2.waitKey(1)
