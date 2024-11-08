@@ -161,74 +161,84 @@ if __name__ == "__main__":
 
     pyautogui.FAILSAFE = False
 
+    max_fps = 10
+    detected_fps = max_fps
+    last_time = time.time() - 1 / max_fps
+
     try:
         while cap.isOpened():
+            now = time.time()
+            delta_time = now - last_time
+            last_time = now
+
+            if delta_time > 0:
+                detected_fps = 1 / delta_time
+
             ret, frame = cap.read()
-            if not ret:
-                break
+            if ret:
+                # BGRからRGBに変換
+                rgb_image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                results = face_mesh.process(rgb_image)
+                # 塗りつぶし
+                cv2.rectangle(frame, (0, 0), (frame.shape[1], frame.shape[0]), (0, 0, 0), -1)
 
-            # BGRからRGBに変換
-            rgb_image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            results = face_mesh.process(rgb_image)
-            # 塗りつぶし
-            cv2.rectangle(frame, (0, 0), (frame.shape[1], frame.shape[0]), (0, 0, 0), -1)
+                if results.multi_face_landmarks is not None:
+                    for face_landmarks in results.multi_face_landmarks:
+                        for id, lm in enumerate(face_landmarks.landmark):
+                            # 各ランドマークの座標を取得
+                            h, w, c = frame.shape
+                            x, y = int(lm.x * w), int(lm.y * h)
+                            # ランドマークを描画
+                            cv2.circle(frame, (x, y), 1, (0, 255, 0), 1)
+                            
 
-            if results.multi_face_landmarks is not None:
-                for face_landmarks in results.multi_face_landmarks:
-                    for id, lm in enumerate(face_landmarks.landmark):
-                        # 各ランドマークの座標を取得
-                        h, w, c = frame.shape
-                        x, y = int(lm.x * w), int(lm.y * h)
-                        # ランドマークを描画
-                        cv2.circle(frame, (x, y), 1, (0, 255, 0), 1)
-                        
+                        # 口の開きが口の幅の20%以上のときに口が開いていると判定
+                        # 口の幅を取得 
+                        mouth_width = abs(face_landmarks.landmark[308].x - face_landmarks.landmark[78].x)
+                        # 口の開きを取得
+                        mouth_height = abs(face_landmarks.landmark[14].y - face_landmarks.landmark[13].y)
+                        open = mouth_height > mouth_width * 0.2
+                        close = mouth_height <= mouth_width * 0.1
+                        # 口が閉じた状態から口が開いたときに中ボタンをダウン
+                        if open and not mouth_open:
+                            pyautogui.mouseDown(button='middle')
+                            # print('mouth open')
+                            mouth_open = True
+                        # 口が開いた状態から口が閉じたときに中ボタンをアップ
+                        if close and mouth_open:
+                            pyautogui.mouseUp(button='middle')
+                            # print('mouth close')
+                            mouth_open = False
 
-                    # 口の開きが口の幅の20%以上のときに口が開いていると判定
-                    # 口の幅を取得 
-                    mouth_width = abs(face_landmarks.landmark[308].x - face_landmarks.landmark[78].x)
-                    # 口の開きを取得
-                    mouth_height = abs(face_landmarks.landmark[14].y - face_landmarks.landmark[13].y)
-                    open = mouth_height > mouth_width * 0.2
-                    close = mouth_height <= mouth_width * 0.1
-                    # 口が閉じた状態から口が開いたときに中ボタンをダウン
-                    if open and not mouth_open:
-                        pyautogui.mouseDown(button='middle')
-                        # print('mouth open')
-                        mouth_open = True
-                    # 口が開いた状態から口が閉じたときに中ボタンをアップ
-                    if close and mouth_open:
-                        pyautogui.mouseUp(button='middle')
-                        # print('mouth close')
-                        mouth_open = False
+                        # 顔の向きを取得
+                        face_nose = np.array([face_landmarks.landmark[6].x, face_landmarks.landmark[6].y, face_landmarks.landmark[6].z])
+                        face_right = np.array([face_landmarks.landmark[127].x, face_landmarks.landmark[127].y, face_landmarks.landmark[127].z])
+                        face_left = np.array([face_landmarks.landmark[356].x , face_landmarks.landmark[356].y, face_landmarks.landmark[356].z])
+                        face_center = (face_right + face_left) / 2
+                        face_front = face_nose - face_center
+                        face_front_normarized = face_front / face_front[2]
+                        x_pos = map_and_trim(face_front_normarized[0], -0.38, 0.38, 0, pyautogui.size()[0])
+                        y_pos = map_and_trim(-face_front_normarized[1], -0.22, 0.22, 0, pyautogui.size()[1])
+                        target[0]=x_pos
+                        target[1]=y_pos
 
-                    # 顔の向きを取得
-                    face_nose = np.array([face_landmarks.landmark[6].x, face_landmarks.landmark[6].y, face_landmarks.landmark[6].z])
-                    face_right = np.array([face_landmarks.landmark[127].x, face_landmarks.landmark[127].y, face_landmarks.landmark[127].z])
-                    face_left = np.array([face_landmarks.landmark[356].x , face_landmarks.landmark[356].y, face_landmarks.landmark[356].z])
-                    face_center = (face_right + face_left) / 2
-                    face_front = face_nose - face_center
-                    face_front_normarized = face_front / face_front[2]
-                    x_pos = map_and_trim(face_front_normarized[0], -0.38, 0.38, 0, pyautogui.size()[0])
-                    y_pos = map_and_trim(-face_front_normarized[1], -0.22, 0.22, 0, pyautogui.size()[1])
-                    target[0]=x_pos
-                    target[1]=y_pos
+                        break
 
-                    break
-
-            # 左右反転
-            frame = cv2.flip(frame, 1)
-            # デバッグ表示
-            cv2.putText(frame, f'Camera: {camera_index}', (50, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1, cv2.LINE_AA)
-            if results.multi_face_landmarks is not None: 
-                cv2.putText(frame, f'{face_nose}', (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1, cv2.LINE_AA)
-                cv2.putText(frame, f'{face_center}', (50, 70), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1, cv2.LINE_AA)
-                cv2.putText(frame, f'{face_front_normarized}', (50, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1, cv2.LINE_AA)
-                cv2.putText(frame, f'{x_pos} {y_pos}', (50, 110), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1, cv2.LINE_AA)
-            # 画面表示
-            cv2.imshow('MediaPipe FaceMesh', frame)
-            
+                # 左右反転
+                frame = cv2.flip(frame, 1)
+                # デバッグ表示
+                cv2.putText(frame, f'Camera: {camera_index}', (50, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1, cv2.LINE_AA)
+                if results.multi_face_landmarks is not None: 
+                    cv2.putText(frame, f'{face_nose}', (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1, cv2.LINE_AA)
+                    cv2.putText(frame, f'{face_center}', (50, 70), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1, cv2.LINE_AA)
+                    cv2.putText(frame, f'{face_front_normarized}', (50, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1, cv2.LINE_AA)
+                    cv2.putText(frame, f'{x_pos} {y_pos}', (50, 110), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1, cv2.LINE_AA)
+                    cv2.putText(frame, f'{detected_fps:05.2f}fps {delta_time:05.2f}sec', (50, 130), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1, cv2.LINE_AA)
+                # 画面表示
+                cv2.imshow('MediaPipe FaceMesh', frame)
+                
             # キー入力
-            key = cv2.waitKey(5)
+            key = cv2.waitKey(1)
             # Cでカメラ切り替え
             if key & 0xFF == ord('c'):
                 change_camera()
@@ -245,8 +255,10 @@ if __name__ == "__main__":
 
             # esc or Qで終了
             if key & 0xFF == 27 or key & 0xFF == ord('q'):
+                print('exit')
                 break
-            time.sleep(1 / 5)
+            process_time = time.time() - now
+            time.sleep(max(0, 1 / max_fps - process_time))
     except Exception as e:
         print(e)
 
